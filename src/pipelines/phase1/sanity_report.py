@@ -7,12 +7,12 @@ import pandas as pd
 
 def compute_flags(df: pd.DataFrame, intrinsic_epsilon: float = 1e-4) -> pd.DataFrame:
     df = df.copy()
-    df["invalid_spread"] = (df["bid_eod"].notna() & df["ask_eod"].notna() & (df["bid_eod"] > df["ask_eod"])) | (
-        (df["bid_eod"] < 0) | (df["ask_eod"] < 0)
+    df["invalid_spread"] = (df["bid"].notna() & df["ask"].notna() & (df["bid"] > df["ask"])) | (
+        (df["bid"] < 0) | (df["ask"] < 0)
     )
-    df["mid_missing"] = df["mid_eod"].isna()
-    df["intrinsic_violation"] = (df["mid_eod"].notna()) & (df["intrinsic_eod"].notna()) & (
-        df["mid_eod"] + intrinsic_epsilon < df["intrinsic_eod"]
+    df["mid_missing"] = df["mid"].isna()
+    df["intrinsic_violation"] = (df["mid"].notna()) & (df["intrinsic"].notna()) & (
+        df["mid"] + intrinsic_epsilon < df["intrinsic"]
     )
     return df
 
@@ -36,9 +36,9 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run basic sanity checks on normalized Cboe options data.")
-    parser.add_argument("--input", default="data/processed/options.parquet", help="Normalized Parquet input.")
-    parser.add_argument("--output", default="data/processed/sanity_summary.csv", help="CSV summary output.")
+    parser = argparse.ArgumentParser(description="Run basic sanity checks on a normalized snapshot.")
+    parser.add_argument("--input", required=True, help="Normalized Parquet input (single snapshot).")
+    parser.add_argument("--output", required=True, help="CSV summary output.")
     args = parser.parse_args()
 
     df = pd.read_parquet(args.input)
