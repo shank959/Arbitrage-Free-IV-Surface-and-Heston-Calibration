@@ -9,6 +9,7 @@ from .cboe_schema import CboeRow
 
 
 def _to_float(val) -> Optional[float]:
+    """Best-effort float cast; returns None on bad inputs."""
     try:
         return float(val)
     except (TypeError, ValueError):
@@ -16,6 +17,7 @@ def _to_float(val) -> Optional[float]:
 
 
 def _normalize_type(val: Optional[str]) -> Optional[str]:
+    """Normalize option type strings to 'call'/'put' or None."""
     if not val:
         return None
     v = val.strip().lower()
@@ -27,6 +29,7 @@ def _normalize_type(val: Optional[str]) -> Optional[str]:
 
 
 def compute_mid(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
+    """Return midpoint if bid/ask are valid and non-negative."""
     if bid is None or ask is None:
         return None
     if bid < 0 or ask < 0:
@@ -35,6 +38,7 @@ def compute_mid(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
 
 
 def parse_row(raw: dict) -> CboeRow:
+    """Parse a raw CSV row dict into a typed CboeRow."""
     return CboeRow(
         underlying_symbol=raw.get("underlying_symbol"),
         quote_date=raw.get("quote_date"),
@@ -62,6 +66,7 @@ def parse_row(raw: dict) -> CboeRow:
 
 
 def _derive_intrinsic(row) -> Optional[float]:
+    """Compute intrinsic value given spot, strike, and option_type."""
     if row["spot"] is None or row["strike"] is None or row["option_type"] is None:
         return None
     if row["option_type"] == "call":
@@ -70,6 +75,7 @@ def _derive_intrinsic(row) -> Optional[float]:
 
 
 def derive_fields(df: pd.DataFrame, snapshot: str) -> pd.DataFrame:
+    """Add snapshot-specific bid/ask fields plus mid/spot/intrinsic features."""
     def col(series_name: str):
         return df[series_name] if series_name in df.columns else pd.Series(np.nan, index=df.index)
 
@@ -110,6 +116,7 @@ def derive_fields(df: pd.DataFrame, snapshot: str) -> pd.DataFrame:
 
 
 def load_raw_csvs(raw_dir: Path) -> List[CboeRow]:
+    """Load all CSVs in a directory into a list of CboeRow records."""
     rows: List[CboeRow] = []
     for csv_file in sorted(raw_dir.glob("*.csv")):
         df = pd.read_csv(csv_file)
@@ -120,6 +127,7 @@ def load_raw_csvs(raw_dir: Path) -> List[CboeRow]:
 
 
 def write_outputs(df: pd.DataFrame, snapshot: str, output: Path, write_partitions: bool) -> None:
+    """Write combined Parquet and per-day partitions for a snapshot."""
     output.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(output, index=False)
     if write_partitions:
@@ -130,6 +138,9 @@ def write_outputs(df: pd.DataFrame, snapshot: str, output: Path, write_partition
 
 
 def main() -> None:
+    """Normalize raw Cboe CSVs into 15:45 and EOD Parquet outputs with derived fields."""
+
+    # Parse command line arguments
     parser = argparse.ArgumentParser(description="Normalize Cboe SPY options into separate 1545 and EOD datasets.")
     parser.add_argument("--raw-dir", default="data/raw/cboe", help="Directory with daily CSV files.")
     parser.add_argument("--output-1545", default="data/processed/1545/options_1545.parquet", help="Parquet output for 15:45 snapshot.")
@@ -137,20 +148,26 @@ def main() -> None:
     parser.add_argument("--no-partitions", action="store_true", help="Skip writing per-day partitioned Parquet files.")
     args = parser.parse_args()
 
+    # Load raw CSVs into a list of CboeRow records
     raw_root = Path(args.raw_dir)
     rows = load_raw_csvs(raw_root)
     if not rows:
         print("No rows parsed; check input directory.")
         return
 
+    # Create base dataframe from rows using the defined CboeRow schema
     base_df = pd.DataFrame([r.__dict__ for r in rows])
 
+    # Derive fields for 15:45 snapshot
     df_1545 = derive_fields(base_df.copy(), snapshot="1545")
+    # Derive fields for EOD snapshot using the same base dataframe
     df_eod = derive_fields(base_df.copy(), snapshot="eod")
 
+    # Write derived dataframes to Parquet files
     write_outputs(df_1545, "1545", Path(args.output_1545), write_partitions=not args.no_partitions)
     write_outputs(df_eod, "eod", Path(args.output_eod), write_partitions=not args.no_partitions)
 
+    # Log the number of rows written to each output file
     print(f"Wrote {len(df_1545)} rows to {args.output_1545}")
     print(f"Wrote {len(df_eod)} rows to {args.output_eod}")
 

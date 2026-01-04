@@ -1,3 +1,14 @@
+"""
+This module implements bid-ask–aware arbitrage detection for our options data
+
+It checks for violations of monotonicity, convexity, and calendar spreads.
+- Monotonicity: call prices should decrease with strike, put prices should increase with strike
+- Convexity: the slope of the bid-ask curve should be non-negative
+- Calendar spreads: the longer-dated ask should be below the shorter-dated bid
+
+It also exports summary tables and heatmaps of violation counts to help us understand the data
+"""
+
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,14 +19,15 @@ import numpy as np
 import pandas as pd
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402  # isort:skip
+import matplotlib.pyplot as plt
 
 
+# Define a small epsilon for floating point comparisons
 EPS = 1e-12
-
 
 @dataclass
 class DetectionResults:
+    """Container for detection outputs: summary tables and per-rule details."""
     summary: pd.DataFrame
     samples: pd.DataFrame
     monotonicity: pd.DataFrame
@@ -24,10 +36,12 @@ class DetectionResults:
 
 
 def load_snapshot(input_path: Path) -> pd.DataFrame:
+    """Load and sort a snapshot Parquet, keeping only calls/puts."""
     df = pd.read_parquet(input_path)
     if "option_type" not in df.columns:
         raise ValueError("input dataset missing option_type column")
     df = df[df["option_type"].isin(["call", "put"])].copy()
+    # Convert quote_date and expiration to YYYY-MM-DD format for consistency
     df["quote_date"] = pd.to_datetime(df["quote_date"]).dt.strftime("%Y-%m-%d")
     df["expiration"] = pd.to_datetime(df["expiration"]).dt.strftime("%Y-%m-%d")
     df = df.sort_values(["quote_date", "expiration", "option_type", "strike"])
@@ -35,12 +49,21 @@ def load_snapshot(input_path: Path) -> pd.DataFrame:
 
 
 def _bucket_strike(series: pd.Series, width: float) -> pd.Series:
+    """Bucket strikes to a given width for heatmap aggregation."""
     width = width if width > 0 else 1.0
     return np.round(series / width) * width
 
 
-def _monotonicity_records(df: pd.DataFrame, quote_date: str, expiration: str, option_type: str) -> List[Dict]:
+def _monotonicity_checks(df: pd.DataFrame, quote_date: str, expiration: str, option_type: str) -> List[Dict]:
+    """
+    Collect bid-ask–aware monotonicity violations within a maturity.
+    Monotonicty: 
+    - For each maturity j, C_{i,j} >= C_{i+1,j}
+    - Given a best-case bid/ask curve, the monotonicity constraint is violated if the best-case bid for a given strike is greater than the best-case ask for the next strike.
+    """
+    # Sort the dataframe by strike
     g = df.sort_values("strike")
+    # Get the strikes, bids, and asks
     strikes = g["strike"].to_numpy()
     bids = g["bid"].to_numpy()
     asks = g["ask"].to_numpy()
@@ -48,14 +71,18 @@ def _monotonicity_records(df: pd.DataFrame, quote_date: str, expiration: str, op
     if len(g) < 2:
         return records
 
+    # Check for monotonicity violations
     for i in range(len(g) - 1):
         k_curr, k_next = strikes[i], strikes[i + 1]
         bid_curr, bid_next = bids[i], bids[i + 1]
         ask_curr, ask_next = asks[i], asks[i + 1]
 
+        # Check for monotonicity violations for calls
         if option_type == "call":
+            # If the next strike is missing or the current strike is missing, skip
             if np.isnan(bid_next) or np.isnan(ask_curr):
                 continue
+            # If the next strike bid is greater than the current strike ask, add a violation
             if bid_next > ask_curr + EPS:
                 records.append(
                     {
@@ -90,7 +117,13 @@ def _monotonicity_records(df: pd.DataFrame, quote_date: str, expiration: str, op
     return records
 
 
-def _convexity_records(df: pd.DataFrame, quote_date: str, expiration: str, option_type: str) -> List[Dict]:
+def _convexity_checks(df: pd.DataFrame, quote_date: str, expiration: str, option_type: str) -> List[Dict]:
+    """Collect discrete convexity violations using best-case bid/ask bounds.
+    Discrete Convexity:
+    - For each maturity j, for each interior index i=2,...,n_j-1, C_{i-1,j} - 2*C_{i,j} + C_{i+1,j} >= 0.
+    - The best case scenario for this problem is equivalent to C(i,j)_ask - (C(i-1,j)_bid + C(i+1,j)_ask) >= 0.
+    """
+    # Sort the dataframe by strike
     g = df.sort_values("strike")
     strikes = g["strike"].to_numpy()
     bids = g["bid"].to_numpy()
@@ -99,6 +132,7 @@ def _convexity_records(df: pd.DataFrame, quote_date: str, expiration: str, optio
     if len(g) < 3:
         return records
 
+    # Check for convexity violations
     for i in range(len(g) - 2):
         k1, k2, k3 = strikes[i], strikes[i + 1], strikes[i + 2]
         b1, a2, b3 = bids[i], asks[i + 1], bids[i + 2]
@@ -108,6 +142,7 @@ def _convexity_records(df: pd.DataFrame, quote_date: str, expiration: str, optio
             continue
         slope1 = (a2 - b1) / (k2 - k1)
         slope2 = (b3 - a2) / (k3 - k2)
+        # If the slope of the left is greater than the slope of the right, add a violation
         if slope1 + EPS < slope2:
             records.append(
                 {
@@ -129,7 +164,14 @@ def _convexity_records(df: pd.DataFrame, quote_date: str, expiration: str, optio
     return records
 
 
-def _calendar_records(df: pd.DataFrame) -> List[Dict]:
+def _calendar_checks(df: pd.DataFrame) -> List[Dict]:
+    """Collect calendar spread violations across expirations for each strike.
+    
+    Calendar Spreads:
+    - For each strike i, C_{i,j} <= C_{i,j+1}
+    - The best case scenario for this problem is equivalent to C(i,j)_ask - C(i,j+1)_bid >= 0.
+    """
+    # Group the dataframe by quote_date, option_type, and strike
     records: List[Dict] = []
     grouped = df.groupby(["quote_date", "option_type", "strike"])
     for (quote_date, option_type, strike), grp in grouped:
@@ -137,7 +179,9 @@ def _calendar_records(df: pd.DataFrame) -> List[Dict]:
         expirations = g["expiration"].to_numpy()
         bids = g["bid"].to_numpy()
         asks = g["ask"].to_numpy()
+        # Check for calendar spread violations
         for i in range(len(g) - 1):
+            # Get the short and long expirations and bids and asks
             short_exp, long_exp = expirations[i], expirations[i + 1]
             bid_short, ask_long = bids[i], asks[i + 1]
             if np.isnan(bid_short) or np.isnan(ask_long):
@@ -158,7 +202,8 @@ def _calendar_records(df: pd.DataFrame) -> List[Dict]:
     return records
 
 
-def summarize(base_df: pd.DataFrame, mono_df: pd.DataFrame, conv_df: pd.DataFrame, cal_df: pd.DataFrame) -> pd.DataFrame:
+def summarize_violations(base_df: pd.DataFrame, mono_df: pd.DataFrame, conv_df: pd.DataFrame, cal_df: pd.DataFrame) -> pd.DataFrame:
+    """Summarize violations per (quote_date, expiration, option_type)."""
     summary = (
         base_df.groupby(["quote_date", "expiration", "option_type"])
         .size()
@@ -195,6 +240,7 @@ def summarize(base_df: pd.DataFrame, mono_df: pd.DataFrame, conv_df: pd.DataFram
 
 
 def _plot_heatmap(counts: pd.DataFrame, output_path: Path, title: str) -> None:
+    """Render and save a heatmap of violation counts by expiration/strike bucket."""
     if counts.empty:
         return
     pivot = counts.pivot(index="expiration", columns="strike_bucket", values="count").fillna(0)
@@ -215,6 +261,7 @@ def _plot_heatmap(counts: pd.DataFrame, output_path: Path, title: str) -> None:
 
 
 def _heatmap_counts(df: pd.DataFrame, bucket_width: float) -> pd.DataFrame:
+    """Aggregate violation counts into strike buckets for plotting."""
     if df.empty:
         return pd.DataFrame()
     out = df.copy()
@@ -234,21 +281,22 @@ def run_detection(
     sample_size: int = 200,
     strike_bucket: float = 1.0,
 ) -> DetectionResults:
+    """End-to-end detection run: load data, compute violations, export reports/plots."""
     df = load_snapshot(input_path)
 
     mono_records: List[Dict] = []
     conv_records: List[Dict] = []
     for (quote_date, expiration, option_type), grp in df.groupby(["quote_date", "expiration", "option_type"]):
-        mono_records.extend(_monotonicity_records(grp, quote_date, expiration, option_type))
-        conv_records.extend(_convexity_records(grp, quote_date, expiration, option_type))
+        mono_records.extend(_monotonicity_checks(grp, quote_date, expiration, option_type))
+        conv_records.extend(_convexity_checks(grp, quote_date, expiration, option_type))
 
-    cal_records = _calendar_records(df)
+    cal_records = _calendar_checks(df)
 
     mono_df = pd.DataFrame(mono_records)
     conv_df = pd.DataFrame(conv_records)
     cal_df = pd.DataFrame(cal_records)
 
-    summary = summarize(df, mono_df, conv_df, cal_df)
+    summary = summarize_violations(df, mono_df, conv_df, cal_df)
 
     samples = pd.concat(
         [
@@ -279,6 +327,9 @@ def run_detection(
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    """CLI entrypoint for detection; parses args and writes artifacts."""
+
+    # Parse command line arguments
     parser = argparse.ArgumentParser(description="Detect static arbitrage violations with bid-ask awareness.")
     parser.add_argument("--input", required=True, help="Parquet snapshot input path.")
     parser.add_argument("--output-dir", required=True, help="Directory for reports and plots.")
@@ -286,10 +337,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--strike-bucket", type=float, default=1.0, help="Strike bucket size for heatmaps.")
     args = parser.parse_args(argv)
 
+    # Run the detection
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
     results = run_detection(input_path, output_dir, sample_size=args.sample_size, strike_bucket=args.strike_bucket)
 
+    # Log the results
     print("Summary (first 10 rows):")
     print(results.summary.head(10).to_string(index=False))
     print(f"\nWrote summary to {output_dir / 'summary.csv'}")

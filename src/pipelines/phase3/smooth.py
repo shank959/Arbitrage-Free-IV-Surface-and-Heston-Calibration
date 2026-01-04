@@ -6,16 +6,16 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize_scalar, least_squares
+from scipy.optimize import least_squares
 from scipy.stats import norm
 from scipy.interpolate import UnivariateSpline
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  # isort:skip
 
+# Import shared IV computation
+from pipelines.common.iv_computation import implied_vol, _bs_price, MIN_SIGMA
 
-MIN_SIGMA = 1e-4
-MAX_SIGMA = 5.0
 EPS = 1e-12
 
 
@@ -30,68 +30,8 @@ class SviParams:
     message: str
 
 
-def _bs_price(spot: float, strike: float, ttm: float, vol: float, r: float, q: float, is_call: bool) -> float:
-    """Black-Scholes price for a given spot, strike, ttm, vol, r, q, and is_call."""
-    if vol < MIN_SIGMA or ttm <= 0 or strike <= 0 or spot <= 0:
-        return np.nan
-    sqrt_t = np.sqrt(ttm)
-    # Calculate the d1 and d2
-    d1 = (np.log(spot / strike) + (r - q + 0.5 * vol * vol) * ttm) / (vol * sqrt_t)
-    d2 = d1 - vol * sqrt_t
-    df_r = np.exp(-r * ttm)
-    df_q = np.exp(-q * ttm)
-    # Calculate the call and put prices
-    call = df_q * spot * norm.cdf(d1) - df_r * strike * norm.cdf(d2)
-    if is_call:
-        return call
-    put = call - df_q * spot + df_r * strike
-    return put
-
-
-def implied_vol(price: float, spot: float, strike: float, ttm: float, r: float, q: float, is_call: bool) -> Optional[float]:
-    """Robust 1D implied vol solver with sanity brackets."""
-    if any(np.isnan(v) for v in (price, spot, strike, ttm)):
-        return None
-    if price <= 0 or strike <= 0 or ttm <= 0 or spot <= 0:
-        return None
-
-    # Calculate the intrinsic value
-    intrinsic = max(spot - strike, 0.0) if is_call else max(strike - spot, 0.0)
-    # Calculate the upper bound
-    upper = spot if is_call else strike
-    # If the price is outside the intrinsic value, return None
-    if price < intrinsic - 1e-6 or price > upper + 1e-6:
-        return None
-
-    # Define the objective function
-    def objective(sig: float) -> float:
-        return _bs_price(spot, strike, ttm, sig, r, q, is_call) - price
-
-    # Coarse bracket: search over [MIN_SIGMA, MAX_SIGMA]
-    # Initialize the lower and higher bounds
-    low, high = MIN_SIGMA, MAX_SIGMA
-    f_low, f_high = objective(low), objective(high)
-    # Expand upward if needed
-    attempts = 0
-    while np.sign(f_low) == np.sign(f_high) and attempts < 5:
-        high *= 2.0
-        f_high = objective(high)
-        attempts += 1
-
-    if np.sign(f_low) == np.sign(f_high):
-        return None
-
-    # Minimize the objective function
-    res = minimize_scalar(
-        lambda s: abs(objective(s)),
-        bounds=(low, high),
-        method="bounded",
-        options={"xatol": 1e-6},
-    )
-    # If the minimization failed, return None
-    if not res.success:
-        return None
-    return float(res.x)
+# _bs_price and implied_vol are now imported from pipelines.common.iv_computation
+# This ensures consistency across all phases
 
 
 def extract_iv(df: pd.DataFrame, r: float, q: float) -> pd.DataFrame:
