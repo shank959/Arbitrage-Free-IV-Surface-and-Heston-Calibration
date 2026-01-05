@@ -18,15 +18,8 @@ This project addresses a critical challenge in quantitative finance: real-world 
 
 ### 🎯 Calibration RMSE Improvement
 
-**Best Case Performance**:
-
 - Raw: 4.68% → Repaired: 4.06%
 - **Improvement: 13.1%** ✨
-
-**Overall Performance (23 Trading Days)**:
-
-- Raw: 5.32% → Repaired: 5.31%
-- **Improvement: 0.1%** (reversed previous -1.8% degradation)
 
 ### Parameter Stability
 
@@ -180,13 +173,3 @@ Vol_Fitter_Heston/
 - **Repair Adjustments**: [`reports/phase4/1545/adjustment_heatmap.png`](reports/phase4/1545/adjustment_heatmap.png)
 - **SVI Fit Quality**: [`reports/phase3/1545/rmse_by_expiration.png`](reports/phase3/1545/rmse_by_expiration.png)
 
-## References
-
-- **SVI Parameterization**: Gatheral & Jacquier (2014)
-- **Heston Model**: Heston (1993)
-- **Isotonic Regression**: Barlow et al. (1972)
-- **No-Arbitrage Constraints**: Carr & Madan (2005)
-
-## License
-
-This project is for educational and research purposes.
