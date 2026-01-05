@@ -1,0 +1,2 @@
+pre_monotonicity,pre_convexity,pre_calendar,pre_total,post_monotonicity,post_convexity,post_calendar,post_total,is_valid,message
+57,24151,1621,25829,0,2781,0,2781,False,"WARNING: 2781 residual violations remain (mono=0, conv=2781, cal=0)"

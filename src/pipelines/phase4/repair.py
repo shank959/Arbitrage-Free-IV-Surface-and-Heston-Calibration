@@ -185,7 +185,10 @@ def build_price_matrices(
     return mid_matrix, bid_matrix, ask_matrix, weight_matrix
 
 
-def construct_qp_problem(
+# NOTE: Legacy function - not used in current implementation
+# Current implementation uses repair_single_expiration() instead
+# Kept for reference but not called anywhere
+def _construct_qp_problem_legacy(
     mid_matrix: np.ndarray,
     bid_matrix: np.ndarray,
     ask_matrix: np.ndarray,
@@ -369,7 +372,10 @@ def construct_qp_problem(
     return problem, C_tilde, slack_mono, slack_conv, slack_cal
 
 
-def solve_repair_qp(
+# NOTE: Legacy function - not used in current implementation
+# Current implementation uses repair_single_expiration() instead
+# Kept for reference but not called anywhere
+def _solve_repair_qp_legacy(
     mid_matrix: np.ndarray,
     bid_matrix: np.ndarray,
     ask_matrix: np.ndarray,
@@ -388,7 +394,7 @@ def solve_repair_qp(
         slack_usage: Dict of slack variable values (if used)
     """
     # First attempt: solve strict QP (no slack)
-    problem, C_tilde, _, _, _ = construct_qp_problem(
+    problem, C_tilde, _, _, _ = _construct_qp_problem_legacy(
         mid_matrix, bid_matrix, ask_matrix, weight_matrix,
         slack_penalty=slack_penalty,
         use_slack=False,
@@ -439,7 +445,7 @@ def solve_repair_qp(
     # =========================================================================
     # Infeasibility detected: Retry with slack variables
     # =========================================================================
-    problem, C_tilde, slack_mono, slack_conv, slack_cal = construct_qp_problem(
+    problem, C_tilde, slack_mono, slack_conv, slack_cal = _construct_qp_problem_legacy(
         mid_matrix, bid_matrix, ask_matrix, weight_matrix,
         slack_penalty=slack_penalty,
         use_slack=True,

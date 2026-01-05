@@ -21,3 +21,4 @@ build/
 node_modules/
 data/raw/
 data/processed/
+reports/archive/
