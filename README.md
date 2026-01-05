@@ -2,9 +2,9 @@
 
 A comprehensive pipeline for processing option market data, detecting and repairing static arbitrage violations, and calibrating the Heston stochastic volatility model. Built for quantitative finance applications with emphasis on mathematical rigor and production-ready code.
 
-## 📄 Mathematical Foundations
+## 📄 Full Mathematical Report (Motivation, Theory, Implementation)
 
-**For complete mathematical proofs, formulations, and theoretical background, see the [LaTeX Report PDF](LaTex_Report.pdf).**
+**For complete mathematical proofs, formulations, theoretical background, motivations and implementations see the [LaTeX Report PDF](LaTex_Report.pdf).**
 
 ## Project Overview
 
@@ -74,7 +74,7 @@ Minimizes price adjustments while enforcing no-arbitrage constraints and respect
 **Results**:
 
 - Monotonicity violations: 57 → 0 (100% elimination)
-- Calendar violations: 1,621 → 2 (99.9% reduction)
+- Calendar violations: 1,621 → 0 (100% reduction)
 - Convexity violations: 24,151 → 2,661 (89% reduction)
 
 **Visualization**: [`reports/phase4/1545/adjustment_heatmap.png`](reports/phase4/1545/adjustment_heatmap.png)
@@ -144,13 +144,6 @@ where w_ij = 1/spread_ij weights by liquidity.
 
 This approach is more robust, scalable, and aligned with industry practice than canonical joint formulations.
 
-### IV Computation Standardization
-
-Created shared module `src/pipelines/common/iv_computation.py`:
-
-- Standardized on discounted intrinsic: `max(S·e^(-qT) - K·e^(-rT), 0)`
-- Uses `brentq` for root finding (theoretically correct, faster)
-- **Result**: 0.00% difference across pipeline phases (was 1.42%)
 
 ## Project Structure
 
@@ -167,9 +160,4 @@ Vol_Fitter_Heston/
 └── LaTex_Report.pdf      # Mathematical proofs and theory
 ```
 
-## Key Visualizations
-
-- **Convexity Violations**: [`reports/phase2/1545/convexity_heatmap.png`](reports/phase2/1545/convexity_heatmap.png)
-- **Repair Adjustments**: [`reports/phase4/1545/adjustment_heatmap.png`](reports/phase4/1545/adjustment_heatmap.png)
-- **SVI Fit Quality**: [`reports/phase3/1545/rmse_by_expiration.png`](reports/phase3/1545/rmse_by_expiration.png)
 
